@@ -328,10 +328,21 @@ function AdminApp() {
   async function toggleDelivered(order: Order) {
     if (!supabase) return
     const nextValue = !order.delivered
-    const { error } = await supabase.from('orders').update({ delivered: nextValue }).eq('id', order.id)
-    if (error) setNotice({ kind: 'error', text: `Ordre #${order.id} kunne ikke opdateres.` })
-    else {
-      setOrders((current) => current.map((item) => item.id === order.id ? { ...item, delivered: nextValue, delivered_at: nextValue ? new Date().toISOString() : null } : item))
+    // Læs tidsstemplet tilbage fra databasen. Triggeren på serversiden sætter delivered_at.
+    const { data, error } = await supabase
+      .from('orders')
+      .update({ delivered: nextValue })
+      .eq('id', order.id)
+      .select('delivered, delivered_at')
+      .single()
+    if (error) {
+      console.error('Kunne ikke opdatere udleveringsstatus:', error)
+      setNotice({ kind: 'error', text: `Ordre #${order.id} kunne ikke opdateres.` })
+    } else {
+      const updated = data as { delivered: boolean; delivered_at: string | null }
+      setOrders((current) => current.map((item) => item.id === order.id
+        ? { ...item, delivered: updated.delivered, delivered_at: updated.delivered_at }
+        : item))
       setNotice({ kind: 'success', text: nextValue ? `Ordre #${order.id} er markeret som udleveret.` : `Ordre #${order.id} er markeret som ikke udleveret.` })
     }
   }
@@ -460,14 +471,17 @@ function AdminApp() {
                       <td><strong>{order.customer_name}</strong><small>{order.phone_number}</small></td>
                       <td><strong>{order.product_number} · {order.shirt_size}</strong><small>Tryk: {order.print_text}</small></td>
                       <td><StatusPill good={order.prepaid}>{order.prepaid ? 'Betalt' : 'Ikke betalt'}</StatusPill></td>
-                      <td><StatusPill good={order.delivered}>{order.delivered ? 'Udleveret' : 'Afventer'}</StatusPill></td>
+                      <td>
+                        <StatusPill good={order.delivered}>{order.delivered ? 'Udleveret' : 'Afventer'}</StatusPill>
+                        {order.delivered && <small>Udleveret: {formatDate(order.delivered_at)}</small>}
+                      </td>
                       <td><div className="row-actions"><button className="text-action" onClick={() => setEditing({ ...order })}>Redigér</button><button className={`deliver-button ${order.delivered ? 'is-delivered' : ''}`} onClick={() => void toggleDelivered(order)}>{order.delivered ? <><Check size={14} /> Udleveret</> : 'Markér udleveret'}</button></div></td>
                     </tr>)}</tbody>
                   </table>
                 </div>
                 <div className="mobile-order-list">{filteredOrders.map((order) => <article className="mobile-order-card" key={order.id}>
                   <div className="mobile-order-top"><strong>#{order.id} · {order.customer_name}</strong><StatusPill good={order.delivered}>{order.delivered ? 'Udleveret' : 'Afventer'}</StatusPill></div>
-                  <div className="mobile-order-details"><span>{order.phone_number}</span><span>Varenr. {order.product_number} · {order.shirt_size}</span><span>Tryk: {order.print_text}</span></div>
+                  <div className="mobile-order-details"><span>{order.phone_number}</span><span>Varenr. {order.product_number} · {order.shirt_size}</span><span>Tryk: {order.print_text}</span>{order.delivered && <span>Udleveret: {formatDate(order.delivered_at)}</span>}</div>
                   <div className="mobile-order-bottom"><StatusPill good={order.prepaid}>{order.prepaid ? 'Betalt' : 'Ikke betalt'}</StatusPill><div className="row-actions"><button className="text-action" onClick={() => setEditing({ ...order })}>Redigér</button><button className={`deliver-button ${order.delivered ? 'is-delivered' : ''}`} onClick={() => void toggleDelivered(order)}>{order.delivered ? 'Fortryd udlevering' : 'Markér udleveret'}</button></div></div>
                 </article>)}</div>
               </div>
