@@ -1,4 +1,4 @@
-# Trøjeordrer – første version
+# Trøjeordrer – første version (forhåbentlig)
 
 En mobilvenlig webapp til registrering og administration af trøjeordrer.
 
