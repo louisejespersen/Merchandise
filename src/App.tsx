@@ -133,8 +133,17 @@ function PublicOrderForm() {
     const { error } = await supabase.from('orders').insert(cleanForm)
     setSubmitting(false)
     if (error) {
-      console.error(error)
-      setNotice({ kind: 'error', text: 'Ordren kunne ikke gemmes. Kontrollér oplysningerne, og prøv igen.' })
+      console.error('Ordren kunne ikke gemmes:', error)
+      const isInactiveProduct = error.message
+        .toLocaleLowerCase('da-DK')
+        .includes('varenummeret er ikke aktivt')
+
+      setNotice({
+        kind: 'error',
+        text: isInactiveProduct
+          ? 'Det valgte varenummer er ikke længere aktivt. Genindlæs siden, og vælg et af de tilgængelige varenumre.'
+          : 'Ordren kunne ikke gemmes. Kontrollér oplysningerne, og prøv igen.',
+      })
       return
     }
     setSubmitted(true)
