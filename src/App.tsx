@@ -160,7 +160,7 @@ function PublicOrderForm() {
       <section className="form-layout">
         <div className="intro-block">
           <div className="eyebrow"><span className="eyebrow-dot" /> ORDREBESTILLING</div>
-          <h1>Bestil din trøje her.</span></h1>
+          <h1>Bestil din<br /><span>trøje her.</span></h1>
           <p>Udfyld oplysningerne nedenfor. Kontrollér gerne stavningen af navn og tryk, inden du sender bestillingen.</p>
           <div className="intro-note"><ShieldCheck size={17} /><span>Dine oplysninger bruges kun til at håndtere bestillingen.</span></div>
         </div>
