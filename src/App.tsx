@@ -59,9 +59,9 @@ function App() {
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <a className={`brand ${compact ? 'brand-compact' : ''}`} href="/" aria-label="Merchandise – forside">
+    <a className={`brand ${compact ? 'brand-compact' : ''}`} href="/" aria-label="Trøjeordrer – forside">
       <span className="brand-icon"><Shirt size={20} strokeWidth={2.2} /></span>
-      <span><strong>Merchandise</strong>{!compact && <small>Ordreregistrering</small>}</span>
+      <span><strong>Trøjeordrer</strong>{!compact && <small>Ordreregistrering</small>}</span>
     </a>
   )
 }
@@ -264,7 +264,7 @@ function AdminApp() {
   const [dataLoading, setDataLoading] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
   const [search, setSearch] = useState('')
-  const [deliveryFilter, setDeliveryFilter] = useState<'all' | 'pending' | 'delivered'>('pending')
+  const [deliveryFilter, setDeliveryFilter] = useState<'all' | 'pending' | 'ready' | 'delivered'>('pending')
   const [activeTab, setActiveTab] = useState<'orders' | 'products'>('orders')
   const [editing, setEditing] = useState<Order | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
@@ -328,8 +328,11 @@ function AdminApp() {
   const filteredOrders = useMemo(() => {
     const term = search.trim().toLocaleLowerCase('da-DK')
     return orders.filter((order) => {
-      const matchesFilter = deliveryFilter === 'all' || (deliveryFilter === 'pending' && !order.delivered) || (deliveryFilter === 'delivered' && order.delivered)
-      const searchable = [order.id, order.customer_name, order.phone_number, order.product_number, order.shirt_size, order.print_text].join(' ').toLocaleLowerCase('da-DK')
+      const matchesFilter = deliveryFilter === 'all'
+        || (deliveryFilter === 'pending' && !order.ready_for_pickup && !order.delivered)
+        || (deliveryFilter === 'ready' && order.ready_for_pickup && !order.delivered)
+        || (deliveryFilter === 'delivered' && order.delivered)
+      const searchable = [order.order_number, order.customer_name, order.phone_number, order.product_number, order.shirt_size, order.print_text].join(' ').toLocaleLowerCase('da-DK')
       return matchesFilter && (!term || searchable.includes(term))
     })
   }, [orders, search, deliveryFilter])
@@ -337,6 +340,10 @@ function AdminApp() {
   async function toggleDelivered(order: Order) {
     if (!supabase) return
     const nextValue = !order.delivered
+    if (nextValue && !order.ready_for_pickup) {
+      setNotice({ kind: 'error', text: `Ordre #${order.order_number} skal først markeres klar til udlevering.` })
+      return
+    }
     // Læs tidsstemplet tilbage fra databasen. Triggeren på serversiden sætter delivered_at.
     const { data, error } = await supabase
       .from('orders')
@@ -346,14 +353,40 @@ function AdminApp() {
       .single()
     if (error) {
       console.error('Kunne ikke opdatere udleveringsstatus:', error)
-      setNotice({ kind: 'error', text: `Ordre #${order.id} kunne ikke opdateres.` })
+      setNotice({ kind: 'error', text: `Ordre #${order.order_number} kunne ikke opdateres.` })
     } else {
       const updated = data as { delivered: boolean; delivered_at: string | null }
       setOrders((current) => current.map((item) => item.id === order.id
         ? { ...item, delivered: updated.delivered, delivered_at: updated.delivered_at }
         : item))
-      setNotice({ kind: 'success', text: nextValue ? `Ordre #${order.id} er markeret som udleveret.` : `Ordre #${order.id} er markeret som ikke udleveret.` })
+      setNotice({ kind: 'success', text: nextValue ? `Ordre #${order.order_number} er markeret som udleveret.` : `Ordre #${order.order_number} er ikke længere markeret som udleveret.` })
     }
+  }
+
+  async function toggleReady(order: Order) {
+    if (!supabase || order.delivered) return
+    const nextValue = !order.ready_for_pickup
+    const { data, error } = await supabase
+      .from('orders')
+      .update({ ready_for_pickup: nextValue })
+      .eq('id', order.id)
+      .select('ready_for_pickup, ready_for_pickup_at')
+      .single()
+    if (error) {
+      console.error('Kunne ikke opdatere klarmeldingsstatus:', error)
+      setNotice({ kind: 'error', text: `Ordre #${order.order_number} kunne ikke opdateres.` })
+      return
+    }
+    const updated = data as { ready_for_pickup: boolean; ready_for_pickup_at: string | null }
+    setOrders((current) => current.map((item) => item.id === order.id
+      ? { ...item, ready_for_pickup: updated.ready_for_pickup, ready_for_pickup_at: updated.ready_for_pickup_at }
+      : item))
+    setNotice({
+      kind: 'success',
+      text: nextValue
+        ? `Ordre #${order.order_number} er markeret som klar til udlevering.`
+        : `Ordre #${order.order_number} er sat tilbage til afventer.`,
+    })
   }
 
   async function saveEdit(event: FormEvent<HTMLFormElement>) {
@@ -379,7 +412,7 @@ function AdminApp() {
     else {
       setOrders((current) => current.map((item) => item.id === editing.id ? { ...item, ...payload } : item))
       setEditing(null)
-      setNotice({ kind: 'success', text: `Ordre #${editing.id} er opdateret.` })
+      setNotice({ kind: 'success', text: `Ordre #${editing.order_number} er opdateret.` })
     }
   }
 
@@ -410,8 +443,8 @@ function AdminApp() {
   }
 
   function exportCsv() {
-    const headers = ['Ordrenr.', 'Kundens navn', 'Telefonnummer', 'Varenummer', 'Størrelse', 'Tryk', 'Betalt på forhånd', 'Udleveret', 'Oprettet', 'Udleveret tidspunkt']
-    const rows = filteredOrders.map((order) => [order.id, order.customer_name, order.phone_number, order.product_number, order.shirt_size, order.print_text, order.prepaid ? 'Ja' : 'Nej', order.delivered ? 'Ja' : 'Nej', formatDate(order.created_at), formatDate(order.delivered_at)])
+    const headers = ['Ordrenr.', 'Kundens navn', 'Telefonnummer', 'Varenummer', 'Størrelse', 'Tryk', 'Betalt på forhånd', 'Klar til udlevering', 'Klar tidspunkt', 'Udleveret', 'Oprettet', 'Udleveret tidspunkt']
+    const rows = filteredOrders.map((order) => [order.order_number, order.customer_name, order.phone_number, order.product_number, order.shirt_size, order.print_text, order.prepaid ? 'Ja' : 'Nej', order.ready_for_pickup ? 'Ja' : 'Nej', formatDate(order.ready_for_pickup_at), order.delivered ? 'Ja' : 'Nej', formatDate(order.created_at), formatDate(order.delivered_at)])
     const csv = '\uFEFF' + [headers, ...rows].map((row) => row.map(csvEscape).join(';')).join('\r\n')
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
     const link = document.createElement('a')
@@ -429,8 +462,9 @@ function AdminApp() {
   if (authLoading || checkingAdmin) return <LoadingScreen text="Kontrollerer adgang…" />
   if (!session || !isAdmin) return <LoginScreen notice={notice} />
 
-  const pendingCount = orders.filter((order) => !order.delivered).length
-  const deliveredCount = orders.length - pendingCount
+  const pendingCount = orders.filter((order) => !order.ready_for_pickup && !order.delivered).length
+  const readyCount = orders.filter((order) => order.ready_for_pickup && !order.delivered).length
+  const deliveredCount = orders.filter((order) => order.delivered).length
 
   return (
     <main className="admin-page">
@@ -448,8 +482,9 @@ function AdminApp() {
 
         <div className="stats-grid">
           <StatCard label="Alle ordrer" value={orders.length} icon={<ClipboardList size={18} />} tone="neutral" />
-          <StatCard label="Afventer udlevering" value={pendingCount} icon={<PackageCheck size={18} />} tone="amber" />
-          <StatCard label="Udleveret" value={deliveredCount} icon={<CheckCircle2 size={18} />} tone="green" />
+          <StatCard label="Afventer" value={pendingCount} icon={<PackageCheck size={18} />} tone="amber" />
+          <StatCard label="Klar til udlevering" value={readyCount} icon={<CheckCircle2 size={18} />} tone="blue" />
+          <StatCard label="Udleveret" value={deliveredCount} icon={<Check size={18} />} tone="green" />
         </div>
 
         <div className="admin-tabs">
@@ -461,9 +496,10 @@ function AdminApp() {
           <section className="panel">
             <div className="panel-head"><div><h2>Bestillinger</h2><p>Se, søg i og opdatér registrerede ordrer.</p></div><button className="button button-outline" onClick={exportCsv} disabled={filteredOrders.length === 0}><Download size={16} /> Eksportér CSV</button></div>
             <div className="toolbar">
-              <label className="search-field"><Search size={17} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Søg navn, telefon, varenr. eller tryk" /></label>
+              <label className="search-field"><Search size={17} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Søg ordrenr., navn, telefon, varenr. eller tryk" /></label>
               <div className="filter-pills" aria-label="Filtrér ordrer">
                 <button className={deliveryFilter === 'pending' ? 'filter-active' : ''} onClick={() => setDeliveryFilter('pending')}>Afventer <span>{pendingCount}</span></button>
+                <button className={deliveryFilter === 'ready' ? 'filter-active' : ''} onClick={() => setDeliveryFilter('ready')}>Klar <span>{readyCount}</span></button>
                 <button className={deliveryFilter === 'delivered' ? 'filter-active' : ''} onClick={() => setDeliveryFilter('delivered')}>Udleveret <span>{deliveredCount}</span></button>
                 <button className={deliveryFilter === 'all' ? 'filter-active' : ''} onClick={() => setDeliveryFilter('all')}>Alle</button>
               </div>
@@ -476,22 +512,43 @@ function AdminApp() {
                   <table className="orders-table">
                     <thead><tr><th>Ordre</th><th>Kunde</th><th>Trøje</th><th>Betaling</th><th>Status</th><th>Handling</th></tr></thead>
                     <tbody>{filteredOrders.map((order) => <tr key={order.id}>
-                      <td><strong>#{order.id}</strong><small>{formatDate(order.created_at)}</small></td>
+                      <td><strong>#{order.order_number}</strong><small>{formatDate(order.created_at)}</small></td>
                       <td><strong>{order.customer_name}</strong><small>{order.phone_number}</small></td>
                       <td><strong>{order.product_number} · {order.shirt_size}</strong><small>Tryk: {order.print_text}</small></td>
                       <td><StatusPill good={order.prepaid}>{order.prepaid ? 'Betalt' : 'Ikke betalt'}</StatusPill></td>
                       <td>
-                        <StatusPill good={order.delivered}>{order.delivered ? 'Udleveret' : 'Afventer'}</StatusPill>
+                        {order.delivered
+                          ? <StatusPill good>Udleveret</StatusPill>
+                          : order.ready_for_pickup
+                            ? <StatusPill ready>Klar til udlevering</StatusPill>
+                            : <StatusPill>Afventer</StatusPill>}
+                        {order.ready_for_pickup && <small>Klar: {formatDate(order.ready_for_pickup_at)}</small>}
                         {order.delivered && <small>Udleveret: {formatDate(order.delivered_at)}</small>}
                       </td>
-                      <td><div className="row-actions"><button className="text-action" onClick={() => setEditing({ ...order })}>Redigér</button><button className={`deliver-button ${order.delivered ? 'is-delivered' : ''}`} onClick={() => void toggleDelivered(order)}>{order.delivered ? <><Check size={14} /> Udleveret</> : 'Markér udleveret'}</button></div></td>
+                      <td><div className="row-actions">
+                        <button className="text-action" onClick={() => setEditing({ ...order })}>Redigér</button>
+                        {!order.ready_for_pickup && !order.delivered
+                          ? <button className="deliver-button ready-action" onClick={() => void toggleReady(order)}>Klar til udlevering</button>
+                          : order.ready_for_pickup && !order.delivered
+                            ? <><button className="deliver-button" onClick={() => void toggleDelivered(order)}>Markér udleveret</button><button className="text-action" onClick={() => void toggleReady(order)}>Fortryd klarmelding</button></>
+                            : <button className="deliver-button is-delivered" onClick={() => void toggleDelivered(order)}>Fortryd udlevering</button>}
+                      </div></td>
                     </tr>)}</tbody>
                   </table>
                 </div>
                 <div className="mobile-order-list">{filteredOrders.map((order) => <article className="mobile-order-card" key={order.id}>
-                  <div className="mobile-order-top"><strong>#{order.id} · {order.customer_name}</strong><StatusPill good={order.delivered}>{order.delivered ? 'Udleveret' : 'Afventer'}</StatusPill></div>
-                  <div className="mobile-order-details"><span>{order.phone_number}</span><span>Varenr. {order.product_number} · {order.shirt_size}</span><span>Tryk: {order.print_text}</span>{order.delivered && <span>Udleveret: {formatDate(order.delivered_at)}</span>}</div>
-                  <div className="mobile-order-bottom"><StatusPill good={order.prepaid}>{order.prepaid ? 'Betalt' : 'Ikke betalt'}</StatusPill><div className="row-actions"><button className="text-action" onClick={() => setEditing({ ...order })}>Redigér</button><button className={`deliver-button ${order.delivered ? 'is-delivered' : ''}`} onClick={() => void toggleDelivered(order)}>{order.delivered ? 'Fortryd udlevering' : 'Markér udleveret'}</button></div></div>
+                  <div className="mobile-order-top"><strong>#{order.order_number} · {order.customer_name}</strong>
+                    {order.delivered ? <StatusPill good>Udleveret</StatusPill> : order.ready_for_pickup ? <StatusPill ready>Klar til udlevering</StatusPill> : <StatusPill>Afventer</StatusPill>}
+                  </div>
+                  <div className="mobile-order-details"><span>{order.phone_number}</span><span>Varenr. {order.product_number} · {order.shirt_size}</span><span>Tryk: {order.print_text}</span>{order.ready_for_pickup && <span>Klar: {formatDate(order.ready_for_pickup_at)}</span>}{order.delivered && <span>Udleveret: {formatDate(order.delivered_at)}</span>}</div>
+                  <div className="mobile-order-bottom"><StatusPill good={order.prepaid}>{order.prepaid ? 'Betalt' : 'Ikke betalt'}</StatusPill><div className="row-actions">
+                    <button className="text-action" onClick={() => setEditing({ ...order })}>Redigér</button>
+                    {!order.ready_for_pickup && !order.delivered
+                      ? <button className="deliver-button ready-action" onClick={() => void toggleReady(order)}>Klar til udlevering</button>
+                      : order.ready_for_pickup && !order.delivered
+                        ? <><button className="deliver-button" onClick={() => void toggleDelivered(order)}>Markér udleveret</button><button className="text-action" onClick={() => void toggleReady(order)}>Fortryd klarmelding</button></>
+                        : <button className="deliver-button is-delivered" onClick={() => void toggleDelivered(order)}>Fortryd udlevering</button>}
+                  </div></div>
                 </article>)}</div>
               </div>
             )}
@@ -541,15 +598,16 @@ function EditOrderModal({ order, products, onChange, onClose, onSave, saving }: 
   saving: boolean
 }) {
   const update = (key: keyof Order, value: string | boolean) => onChange({ ...order, [key]: value } as Order)
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-title"><div className="modal-heading"><div><p className="eyebrow">ORDRE #{order.id}</p><h2 id="edit-title">Redigér ordre</h2></div><button className="icon-button" onClick={onClose} aria-label="Luk"><X size={19} /></button></div><form onSubmit={onSave} className="order-form"><div className="field-grid"><label className="field field-full"><span>Kundens navn</span><input value={order.customer_name} onChange={(e) => update('customer_name', e.target.value)} maxLength={100} required /></label><label className="field field-full"><span>Telefonnummer</span><input value={order.phone_number} onChange={(e) => update('phone_number', e.target.value)} maxLength={30} required /></label><label className="field"><span>Varenummer</span><select value={order.product_number} onChange={(e) => update('product_number', e.target.value)} required>{products.map((p) => <option key={p.product_number} value={p.product_number}>{p.product_number}</option>)}{!products.some((p) => p.product_number === order.product_number) && <option value={order.product_number}>{order.product_number} (tidligere varenr.)</option>}</select></label><label className="field"><span>Størrelse</span><select value={order.shirt_size} onChange={(e) => update('shirt_size', e.target.value)}>{SHIRT_SIZES.map((s) => <option key={s}>{s}</option>)}</select></label><label className="field field-full"><span>Tryk (maks. 9 tegn)</span><input value={order.print_text} onChange={(e) => update('print_text', e.target.value)} maxLength={9} required /></label></div><label className="toggle-line"><input type="checkbox" checked={order.prepaid} onChange={(e) => update('prepaid', e.target.checked)} /><span>Betalt på forhånd</span></label><div className="modal-actions"><button className="button button-secondary" type="button" onClick={onClose}>Annullér</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Gemmer…' : 'Gem ændringer'}</button></div></form></section></div>
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-title"><div className="modal-heading"><div><p className="eyebrow">ORDRE #{order.order_number}</p><h2 id="edit-title">Redigér ordre</h2></div><button className="icon-button" onClick={onClose} aria-label="Luk"><X size={19} /></button></div><form onSubmit={onSave} className="order-form"><div className="field-grid"><label className="field field-full"><span>Kundens navn</span><input value={order.customer_name} onChange={(e) => update('customer_name', e.target.value)} maxLength={100} required /></label><label className="field field-full"><span>Telefonnummer</span><input value={order.phone_number} onChange={(e) => update('phone_number', e.target.value)} maxLength={30} required /></label><label className="field"><span>Varenummer</span><select value={order.product_number} onChange={(e) => update('product_number', e.target.value)} required>{products.map((p) => <option key={p.product_number} value={p.product_number}>{p.product_number}</option>)}{!products.some((p) => p.product_number === order.product_number) && <option value={order.product_number}>{order.product_number} (tidligere varenr.)</option>}</select></label><label className="field"><span>Størrelse</span><select value={order.shirt_size} onChange={(e) => update('shirt_size', e.target.value)}>{SHIRT_SIZES.map((s) => <option key={s}>{s}</option>)}</select></label><label className="field field-full"><span>Tryk (maks. 9 tegn)</span><input value={order.print_text} onChange={(e) => update('print_text', e.target.value)} maxLength={9} required /></label></div><label className="toggle-line"><input type="checkbox" checked={order.prepaid} onChange={(e) => update('prepaid', e.target.checked)} /><span>Betalt på forhånd</span></label><div className="modal-actions"><button className="button button-secondary" type="button" onClick={onClose}>Annullér</button><button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Gemmer…' : 'Gem ændringer'}</button></div></form></section></div>
 }
 
-function StatCard({ label, value, icon, tone }: { label: string; value: number; icon: ReactNode; tone: 'neutral' | 'amber' | 'green' }) {
+function StatCard({ label, value, icon, tone }: { label: string; value: number; icon: ReactNode; tone: 'neutral' | 'amber' | 'blue' | 'green' }) {
   return <div className={`stat-card stat-${tone}`}><div className="stat-icon">{icon}</div><span className="stat-value">{value.toLocaleString('da-DK')}</span><span className="stat-label">{label}</span></div>
 }
 
-function StatusPill({ good, children }: { good: boolean; children: ReactNode }) {
-  return <span className={`status-pill ${good ? 'status-good' : 'status-pending'}`}><i />{children}</span>
+function StatusPill({ good = false, ready = false, children }: { good?: boolean; ready?: boolean; children: ReactNode }) {
+  const tone = good ? 'status-good' : ready ? 'status-ready' : 'status-pending'
+  return <span className={`status-pill ${tone}`}><i />{children}</span>
 }
 
 function LoadingScreen({ text, inline = false }: { text: string; inline?: boolean }) {

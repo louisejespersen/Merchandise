@@ -19,6 +19,7 @@ export type Product = {
 
 export type Order = {
   id: number
+  order_number: number
   customer_name: string
   phone_number: string
   product_number: string
@@ -26,6 +27,8 @@ export type Order = {
   print_text: string
   prepaid: boolean
   delivered: boolean
+  ready_for_pickup: boolean
+  ready_for_pickup_at: string | null
   created_at: string
   delivered_at: string | null
   updated_at: string
