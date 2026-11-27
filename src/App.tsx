@@ -59,9 +59,9 @@ function App() {
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
-    <a className={`brand ${compact ? 'brand-compact' : ''}`} href="/" aria-label="Trøjeordrer – forside">
+    <a className={`brand ${compact ? 'brand-compact' : ''}`} href="/" aria-label="Merchandise – forside">
       <span className="brand-icon"><Shirt size={20} strokeWidth={2.2} /></span>
-      <span><strong>Trøjeordrer</strong>{!compact && <small>Ordreregistrering</small>}</span>
+      <span><strong>Merchandise</strong>{!compact && <small>Ordreregistrering</small>}</span>
     </a>
   )
 }
@@ -160,7 +160,7 @@ function PublicOrderForm() {
       <section className="form-layout">
         <div className="intro-block">
           <div className="eyebrow"><span className="eyebrow-dot" /> ORDREBESTILLING</div>
-          <h1>Bestil din<br /><span>trøje her.</span></h1>
+          <h1>Bestil din trøje her.</span></h1>
           <p>Udfyld oplysningerne nedenfor. Kontrollér gerne stavningen af navn og tryk, inden du sender bestillingen.</p>
           <div className="intro-note"><ShieldCheck size={17} /><span>Dine oplysninger bruges kun til at håndtere bestillingen.</span></div>
         </div>
